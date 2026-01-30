@@ -1,0 +1,268 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ============ ENUMS ============
+
+enum UserRole {
+  PATIENT
+  DOCTOR
+  RECEPTION
+  CLINIC_MANAGER
+}
+
+enum AppointmentStatus {
+  PENDING_PAYMENT
+  CONFIRMED
+  IN_PROGRESS
+  COMPLETED
+  CANCELLED
+  NO_SHOW
+}
+
+enum ConsultationType {
+  INITIAL
+  FOLLOW_UP
+}
+
+enum PaymentStatus {
+  PENDING
+  COMPLETED
+  FAILED
+  REFUNDED
+}
+
+enum DocumentType {
+  REFERRAL
+  PRESCRIPTION
+  SESSION_NOTE
+  OTHER
+}
+
+// ============ MODELS ============
+
+model User {
+  id            String    @id @default(cuid())
+  email         String    @unique
+  password      String?
+  firstName     String
+  lastName      String
+  phone         String?
+  dateOfBirth   DateTime?
+  role          UserRole  @default(PATIENT)
+  emailVerified DateTime?
+  image         String?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  isActive      Boolean   @default(true)
+
+  patientProfile        PatientProfile?
+  doctorProfile         DoctorProfile?
+  accounts              Account[]
+  sessions              Session[]
+  appointmentsAsPatient Appointment[]  @relation("PatientAppointments")
+  appointmentsAsDoctor  Appointment[]  @relation("DoctorAppointments")
+  availability          Availability[]
+
+  @@index([email])
+  @@index([role])
+}
+
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String? @db.Text
+  access_token      String? @db.Text
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String? @db.Text
+  session_state     String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+
+  @@unique([identifier, token])
+}
+
+model PatientProfile {
+  id                 String   @id @default(cuid())
+  userId             String   @unique
+  user               User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  medicareNumber     String?
+  healthFundName     String?
+  healthFundNumber   String?
+  emergencyContact   String?
+  emergencyPhone     String?
+  medicalHistory     String?  @db.Text
+  currentMedications String?  @db.Text
+  allergies          String?  @db.Text
+  address            String?
+  suburb             String?
+  state              String?
+  postcode           String?
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  documents Document[]
+}
+
+model DoctorProfile {
+  id                          String   @id @default(cuid())
+  userId                      String   @unique
+  user                        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  providerNumber              String?
+  specialty                   String   @default("ADHD Specialist")
+  qualifications              String?
+  biography                   String?  @db.Text
+  defaultConsultationDuration Int      @default(30)
+  createdAt                   DateTime @default(now())
+  updatedAt                   DateTime @updatedAt
+}
+
+model Availability {
+  id           String    @id @default(cuid())
+  doctorId     String
+  doctor       User      @relation(fields: [doctorId], references: [id], onDelete: Cascade)
+  dayOfWeek    Int
+  startTime    String
+  endTime      String
+  specificDate DateTime?
+  isBlocked    Boolean   @default(false)
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  @@index([doctorId])
+  @@index([dayOfWeek])
+  @@index([specificDate])
+}
+
+model Appointment {
+  id               String            @id @default(cuid())
+  patientId        String
+  patient          User              @relation("PatientAppointments", fields: [patientId], references: [id])
+  doctorId         String
+  doctor           User              @relation("DoctorAppointments", fields: [doctorId], references: [id])
+  scheduledAt      DateTime
+  duration         Int
+  consultationType ConsultationType
+  status           AppointmentStatus @default(PENDING_PAYMENT)
+  dailyRoomName    String?
+  dailyRoomUrl     String?
+  chiefComplaint   String?           @db.Text
+  notes            String?           @db.Text
+  startedAt        DateTime?
+  endedAt          DateTime?
+  createdAt        DateTime          @default(now())
+  updatedAt        DateTime          @updatedAt
+  cancelledAt      DateTime?
+  cancellationReason String?
+
+  payment       Payment?
+  documents     Document[]
+  prescriptions Prescription[]
+
+  @@index([patientId])
+  @@index([doctorId])
+  @@index([scheduledAt])
+  @@index([status])
+}
+
+model Payment {
+  id               String        @id @default(cuid())
+  appointmentId    String        @unique
+  appointment      Appointment   @relation(fields: [appointmentId], references: [id])
+  amount           Int
+  depositAmount    Int
+  remainingBalance Int           @default(0)
+  stripeSessionId  String?
+  stripePaymentId  String?
+  status           PaymentStatus @default(PENDING)
+  paidAt           DateTime?
+  createdAt        DateTime      @default(now())
+  updatedAt        DateTime      @updatedAt
+
+  @@index([stripeSessionId])
+}
+
+model Document {
+  id               String          @id @default(cuid())
+  patientProfileId String?
+  patientProfile   PatientProfile? @relation(fields: [patientProfileId], references: [id])
+  appointmentId    String?
+  appointment      Appointment?    @relation(fields: [appointmentId], references: [id])
+  type             DocumentType
+  fileName         String
+  fileUrl          String
+  fileSize         Int?
+  mimeType         String?
+  title            String?
+  description      String?
+  uploadedById     String
+  createdAt        DateTime        @default(now())
+  updatedAt        DateTime        @updatedAt
+
+  @@index([patientProfileId])
+  @@index([appointmentId])
+  @@index([type])
+}
+
+model Prescription {
+  id               String      @id @default(cuid())
+  appointmentId    String
+  appointment      Appointment @relation(fields: [appointmentId], references: [id])
+  medication       String
+  dosage           String
+  frequency        String
+  duration         String?
+  instructions     String?     @db.Text
+  quantity         Int?
+  repeats          Int         @default(0)
+  pdfUrl           String?
+  prescriberName   String
+  prescriberNumber String?
+  createdAt        DateTime    @default(now())
+  updatedAt        DateTime    @updatedAt
+
+  @@index([appointmentId])
+}
+
+model ClinicSettings {
+  id                    String   @id @default(cuid())
+  name                  String   @default("ADHD Clinic")
+  email                 String?
+  phone                 String?
+  address               String?
+  suburb                String?
+  state                 String?
+  postcode              String?
+  abn                   String?
+  initialConsultPrice   Int      @default(50000)
+  followUpConsultPrice  Int      @default(30000)
+  depositPercentage     Int      @default(100)
+  businessHours         Json?
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+}
